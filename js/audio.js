@@ -22,8 +22,24 @@ export const PRESETS = {
   'Brass': { algo: 2, ops: [op(1, 0.9, 0.05, 0.3, 0.8, 0.15), op(1, 0.5, 0.08, 0.4, 0.6, 0.15), op(2, 0.25, 0.1, 0.3, 0.4, 0.15), OFF()] },
   'Pad': { algo: 3, ops: [op(1, 0.7, 0.4, 1, 0.8, 1.2), op(2, 0.3, 0.6, 1.5, 0.5, 1.2), op(1, 0.7, 0.5, 1, 0.8, 1.2, 9), op(3, 0.22, 0.8, 2, 0.4, 1.2)] },
   'Lead': { algo: 0, ops: [op(1, 0.9, 0.005, 0.2, 0.8, 0.12), op(2, 0.5, 0.005, 0.4, 0.5, 0.12), op(1, 0.4, 0.005, 0.3, 0.3, 0.12), OFF()] },
+  'Init': { algo: 2, ops: [op(1, 0.9, 0.005, 0.3, 0.7, 0.2), op(1, 0, 0.005, 0.3, 0.5, 0.2), OFF(), OFF()] },
   'Organ': { algo: 5, ops: [op(0.5, 0.7, 0.005, 0.1, 1, 0.06), op(1, 0.8, 0.005, 0.1, 1, 0.06), op(2, 0.5, 0.005, 0.1, 1, 0.06), op(3, 0.3, 0.005, 0.1, 1, 0.06)] },
 };
+
+export const WAVES = ['sine', 'triangle', 'sawtooth', 'square'];
+
+// Fills in voice settings that older saved patches do not have.
+export function fillPatch(p) {
+  p.ops.forEach(o => { if (!o.wave) o.wave = 'sine'; if (o.dt == null) o.dt = 0; });
+  if (p.pitchAmt == null) p.pitchAmt = 0;   // semitones the note starts away from its pitch
+  if (p.pitchTime == null) p.pitchTime = 0.1;
+  if (p.vibRate == null) p.vibRate = 5;     // Hz
+  if (p.vibDepth == null) p.vibDepth = 0;   // cents
+  if (p.cut == null) p.cut = 1;             // 0..1, 1 = filter open
+  if (p.res == null) p.res = 0.7;
+  return p;
+}
+Object.values(PRESETS).forEach(fillPatch);
 
 // Drum rows; index is stored as the note pitch on drum tracks.
 export const DRUMS = ['Kick', 'Snare', 'Clap', 'Lo Tom', 'Hi Tom', 'Cowbell', 'Hat', 'Open Hat'];
@@ -107,7 +123,22 @@ export class Engine {
     t = Math.max(t, ctx.currentTime);
     const out = ctx.createGain();
     out.gain.value = vel * 0.3 / Math.sqrt(algo.carriers.length);
-    out.connect(this.channel(track).in);
+    let tail = out;
+    if (p.cut != null && p.cut < 1) {
+      tail = ctx.createBiquadFilter();
+      tail.type = 'lowpass';
+      tail.frequency.value = 80 * 2 ** (p.cut * 7.8);
+      tail.Q.value = p.res || 0.7;
+      out.connect(tail);
+    }
+    tail.connect(this.channel(track).in);
+    let lfoGain = null, lfo = null;
+    if (p.vibDepth > 0) {
+      lfo = ctx.createOscillator(); lfoGain = ctx.createGain();
+      lfo.frequency.value = p.vibRate || 5;
+      lfoGain.gain.value = p.vibDepth;
+      lfo.connect(lfoGain);
+    }
     const oscs = [], gains = [];
     let end = t;
     p.ops.forEach((o, i) => {
@@ -115,7 +146,13 @@ export class Engine {
       if (!(isCar || algo.mods.some(m => m[0] === i)) || o.level <= 0) { oscs.push(null); gains.push(null); return; }
       const osc = ctx.createOscillator(), g = ctx.createGain(), fo = f * o.ratio;
       osc.frequency.value = fo;
+      osc.type = o.wave || 'sine';
       osc.detune.value = o.dt || 0;
+      if (p.pitchAmt) {
+        osc.detune.setValueAtTime((o.dt || 0) + p.pitchAmt * 100, t);
+        osc.detune.setTargetAtTime(o.dt || 0, t, Math.max(p.pitchTime || 0.1, 0.005) / 3);
+      }
+      if (lfoGain) lfoGain.connect(osc.detune);
       osc.connect(g);
       // Carriers output audio; modulators output Hz of deviation (index * freq).
       end = Math.max(end, env(g.gain, t, dur, isCar ? o.level : o.level * o.level * 12 * fo, o));
@@ -125,7 +162,8 @@ export class Engine {
     algo.mods.forEach(([m, c]) => { if (gains[m] && oscs[c]) gains[m].connect(oscs[c].frequency); });
     const live = oscs.filter(Boolean);
     live.forEach(o => { o.start(t); o.stop(end + 0.02); });
-    if (live[0]) live[0].onended = () => out.disconnect();
+    if (lfo) { lfo.start(t); lfo.stop(end + 0.02); }
+    if (live[0]) live[0].onended = () => { tail.disconnect(); if (lfoGain) lfoGain.disconnect(); };
   }
 
   drum(track, row, t, vel = 0.8) {

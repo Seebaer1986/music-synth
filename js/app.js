@@ -1,4 +1,4 @@
-import { Engine, ALGOS, PRESETS, DRUMS, scheduleStep, patternAt, swingOffset, renderWav } from './audio.js';
+import { Engine, ALGOS, PRESETS, DRUMS, WAVES, fillPatch, scheduleStep, patternAt, swingOffset, renderWav } from './audio.js';
 
 const STORE = 'fmloops.project.v1';
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -11,6 +11,13 @@ const SCALES = {
 const COLORS = ['#ff7a59', '#4fc3f7', '#ffd54f', '#b388ff', '#69f0ae', '#f48fb1', '#ffab40', '#80cbc4'];
 const NPAT = 8, CW = 28, SONG_CELL = 36;
 const LO = 24, HI = 84; // C1..C6
+
+// Sounds the user saved, kept in this browser. Preset ids for them are 'my:<name>'.
+const MY = 'fmloops.sounds.v1';
+let mySounds = {};
+try { mySounds = JSON.parse(localStorage.getItem(MY)) || {}; } catch { mySounds = {}; }
+const saveMySounds = () => { try { localStorage.setItem(MY, JSON.stringify(mySounds)); } catch { /* blocked */ } };
+const presetPatch = id => (id.startsWith('my:') ? mySounds[id.slice(3)] : PRESETS[id]);
 
 const $ = s => document.querySelector(s);
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -45,6 +52,7 @@ function normalize(p) {
   for (const t of p.tracks) {
     t.song = Array.from({ length: p.songBars }, (_, i) => (t.song && t.song[i] != null ? t.song[i] : -1));
     t.active = Math.min(t.active || 0, NPAT - 1);
+    if (t.patch) fillPatch(t.patch);
   }
   return p;
 }
@@ -274,7 +282,7 @@ function renderTracks() {
 let updatePlayheads = () => {};
 
 function renderPanel() {
-  $('#tabs').replaceChildren(...[['pattern', 'Pattern'], ['sound', 'Sound'], ['song', 'Song']].map(([id, label]) =>
+  $('#tabs').replaceChildren(...[['pattern', 'Pattern'], ['sound', 'Sound design'], ['song', 'Song']].map(([id, label]) =>
     h('button', { class: ui.tab === id ? 'on' : '', onclick: () => { ui.tab = id; renderPanel(); } }, label)));
   updatePlayheads = () => {};
   const panel = $('#panel');
@@ -443,13 +451,29 @@ function soundPanel(panel) {
   panel.append(h('div', { class: 'toolbar' },
     field('Name', h('input', { type: 'text', value: t.name, maxLength: 16, onchange: e => { t.name = e.target.value.trim() || t.name; commit(); renderTracks(); } })),
     t.type === 'synth' && field('Preset', h('select', {
-      value: t.preset,
+      value: presetPatch(t.preset) ? t.preset : '',
       onchange: e => {
-        if (t.name === t.preset) t.name = e.target.value;
-        t.preset = e.target.value; t.patch = clone(PRESETS[t.preset]);
+        const id = e.target.value, patch = presetPatch(id);
+        if (!patch) return;
+        const label = n => (n.startsWith('my:') ? n.slice(3) : n);
+        if (t.name === label(t.preset)) t.name = label(id);
+        t.preset = id; t.patch = fillPatch(clone(patch));
         commit(); renderTracks(); renderPanel();
       },
-    }, Object.keys(PRESETS).map(n => h('option', { value: n }, n)))),
+    }, h('option', { value: '', hidden: true }, '(custom)'),
+      h('optgroup', { label: 'Built in' }, Object.keys(PRESETS).map(n => h('option', { value: n }, n))),
+      Object.keys(mySounds).length ? h('optgroup', { label: 'My sounds' }, Object.keys(mySounds).map(n => h('option', { value: 'my:' + n }, n))) : null)),
+    t.type === 'synth' && h('button', {
+      title: 'Save this sound under the track name',
+      onclick: () => {
+        mySounds[t.name] = clone(t.patch); saveMySounds();
+        t.preset = 'my:' + t.name; commit(); renderPanel();
+        toast(`Saved "${t.name}" to My sounds.`);
+      },
+    }, 'Save sound'),
+    t.type === 'synth' && t.preset.startsWith('my:') && mySounds[t.preset.slice(3)] && h('button', {
+      onclick: () => { delete mySounds[t.preset.slice(3)]; saveMySounds(); renderPanel(); toast('Removed from My sounds. Tracks using it keep their sound.'); },
+    }, 'Remove saved'),
     t.type === 'synth' && field('Algorithm', h('select', {
       value: String(t.patch.algo), onchange: e => { t.patch.algo = +e.target.value; commit(); renderPanel(); },
     }, ALGOS.map((a, i) => h('option', { value: String(i) }, a.name)))),
@@ -476,16 +500,25 @@ function soundPanel(panel) {
   const tryNotes = [...scale, 12].map(d => 48 + P.key + d);
   panel.append(h('div', { class: 'tryrow' }, h('span', {}, 'Try:'), tryNotes.map(m => h('button', { onpointerdown: () => audition(t, m) }, noteName(m)))));
 
+  const pa = t.patch;
+  panel.append(h('div', { class: 'card' }, h('h3', {}, 'Voice ', h('small', {}, 'applies to the whole sound')),
+    h('div', { class: 'voice' },
+      slider('Pitch env', pa, 'pitchAmt', -24, 24, 1), slider('Env time', pa, 'pitchTime', 0.01, 2, 0.01),
+      slider('Vibrato', pa, 'vibDepth', 0, 100, 1), slider('Vib rate', pa, 'vibRate', 0.1, 12, 0.1),
+      slider('Filter', pa, 'cut', 0, 1, 0.01), slider('Resonance', pa, 'res', 0.1, 15, 0.1))));
+
   const algo = ALGOS[t.patch.algo];
   panel.append(h('div', { class: 'ops' }, t.patch.ops.map((o, i) => {
     const role = algo.carriers.includes(i) ? 'carrier' : algo.mods.some(m => m[0] === i) ? 'modulator' : 'unused';
     return h('div', { class: 'card op ' + role }, h('h3', {}, `Operator ${i + 1} `, h('small', {}, role)),
+      h('label', { class: 'slider' }, h('span', {}, 'Wave'), h('select', { value: o.wave, onchange: e => { o.wave = e.target.value; commit(); } },
+        WAVES.map(w => h('option', { value: w }, w)))),
       slider('Ratio', o, 'ratio', 0.5, 16, 0.5), slider('Fine', o, 'dt', -50, 50, 1),
       slider(role === 'carrier' ? 'Level' : 'Amount', o, 'level', 0, 1, 0.01),
       slider('Attack', o, 'a', 0.001, 2, 0.001), slider('Decay', o, 'd', 0.01, 4, 0.01),
       slider('Sustain', o, 's', 0, 1, 0.01), slider('Release', o, 'r', 0.01, 3, 0.01));
   })));
-  panel.append(h('p', { class: 'hint' }, 'Carriers are the operators you hear. Modulators change a carrier\'s timbre: raise "Amount" for a brighter, harsher tone, and use the modulator\'s envelope to make that brightness fade or swell.'));
+  panel.append(h('p', { class: 'hint' }, 'Start from the "Init" preset to build a sound from scratch; "Save sound" stores it under the track name. Pitch env starts each note that many semitones off and glides to pitch. Filter at 1 is fully open. Carriers are the operators you hear. Modulators change a carrier\'s timbre: raise "Amount" for a brighter, harsher tone, and use the modulator\'s envelope to make that brightness fade or swell.'));
 }
 
 function songPanel(panel) {

@@ -105,3 +105,5 @@ input[type=checkbox] { min-height: 0; width: 18px; height: 18px; accent-color: #
   position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 50;
   background: #2b3040; border: 1px solid #4f7cff; border-radius: 8px; padding: 8px 14px; max-width: 90vw;
 }
+.voice { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0 24px; }
+.slider select { grid-column: 2 / 4; }

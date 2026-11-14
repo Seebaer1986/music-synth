@@ -12,7 +12,7 @@ To use it from any device, host the folder on any static host (for example GitHu
 
 ## How it works
 
-- **Tracks** – synth tracks (4-operator FM, 6 algorithms, 8 presets, per-operator envelopes) and drum tracks (synthesized kit). Each has mute/solo, volume, pan, delay and reverb sends.
+- **Tracks** – synth tracks (4-operator FM, 6 algorithms, per-operator waveform and envelope, pitch envelope, vibrato, filter, built-in presets plus your own saved sounds) and drum tracks (synthesized kit). Each has mute/solo, volume, pan, delay and reverb sends.
 - **Patterns** – every track has 8 patterns of 1, 2 or 4 bars, edited in a piano roll (or drum grid). "Scale only" hides notes outside the chosen key and scale.
 - **Loop mode** – every track loops its selected pattern; switch patterns while it plays.
 - **Song mode** – the Song tab is a bar-by-bar arrangement of which pattern each track plays.
