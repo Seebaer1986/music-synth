@@ -12,6 +12,7 @@ export const ALGOS = [
 ];
 
 const op = (ratio, level, a, d, s, r, dt = 0) => ({ ratio, level, a, d, s, r, dt });
+const wv = (o, wave) => ({ ...o, wave });
 const OFF = () => op(1, 0, 0.01, 0.3, 0, 0.1);
 
 export const PRESETS = {
@@ -23,6 +24,12 @@ export const PRESETS = {
   'Pad': { algo: 3, ops: [op(1, 0.7, 0.4, 1, 0.8, 1.2), op(2, 0.3, 0.6, 1.5, 0.5, 1.2), op(1, 0.7, 0.5, 1, 0.8, 1.2, 9), op(3, 0.22, 0.8, 2, 0.4, 1.2)] },
   'Lead': { algo: 0, ops: [op(1, 0.9, 0.005, 0.2, 0.8, 0.12), op(2, 0.5, 0.005, 0.4, 0.5, 0.12), op(1, 0.4, 0.005, 0.3, 0.3, 0.12), OFF()] },
   'Init': { algo: 2, ops: [op(1, 0.9, 0.005, 0.3, 0.7, 0.2), op(1, 0, 0.005, 0.3, 0.5, 0.2), OFF(), OFF()] },
+  'Acid Saw (303 style)': { algo: 2, cut: 0.38, res: 12, fEnv: 0.42, fTime: 0.22, ops: [wv(op(1, 0.9, 0.002, 0.25, 0.55, 0.05), 'sawtooth'), OFF(), OFF(), OFF()] },
+  'Acid Square (303 style)': { algo: 2, cut: 0.34, res: 10, fEnv: 0.5, fTime: 0.3, ops: [wv(op(1, 0.8, 0.002, 0.3, 0.5, 0.05), 'square'), OFF(), OFF(), OFF()] },
+  'Sub Bass (808 style)': { algo: 2, pitchAmt: 12, pitchTime: 0.04, ops: [op(1, 1, 0.002, 1.6, 0, 0.25), op(1, 0.12, 0.001, 0.2, 0, 0.1), OFF(), OFF()] },
+  'Mono Lead (SH style)': { algo: 5, cut: 0.72, res: 3, fEnv: 0.2, fTime: 0.4, vibDepth: 12, vibRate: 5.5, ops: [wv(op(1, 0.7, 0.01, 0.3, 0.8, 0.15), 'sawtooth'), wv(op(0.5, 0.45, 0.01, 0.3, 0.8, 0.15), 'square'), OFF(), OFF()] },
+  'Poly Strings (Juno style)': { algo: 5, cut: 0.68, res: 1, ops: [wv(op(1, 0.6, 0.35, 1, 0.85, 0.9, -9), 'sawtooth'), wv(op(1, 0.6, 0.35, 1, 0.85, 0.9, 9), 'sawtooth'), wv(op(2, 0.2, 0.5, 1, 0.7, 0.9, 4), 'sawtooth'), OFF()] },
+  'Brass Stab (Jupiter style)': { algo: 5, cut: 0.45, res: 2, fEnv: 0.4, fTime: 0.35, ops: [wv(op(1, 0.7, 0.02, 0.4, 0.7, 0.2, -7), 'sawtooth'), wv(op(1, 0.7, 0.02, 0.4, 0.7, 0.2, 7), 'sawtooth'), OFF(), OFF()] },
   'Organ': { algo: 5, ops: [op(0.5, 0.7, 0.005, 0.1, 1, 0.06), op(1, 0.8, 0.005, 0.1, 1, 0.06), op(2, 0.5, 0.005, 0.1, 1, 0.06), op(3, 0.3, 0.005, 0.1, 1, 0.06)] },
 };
 
@@ -37,11 +44,14 @@ export function fillPatch(p) {
   if (p.vibDepth == null) p.vibDepth = 0;   // cents
   if (p.cut == null) p.cut = 1;             // 0..1, 1 = filter open
   if (p.res == null) p.res = 0.7;
+  if (p.fEnv == null) p.fEnv = 0;           // how far above the cutoff each note starts (0..1)
+  if (p.fTime == null) p.fTime = 0.2;
   return p;
 }
 Object.values(PRESETS).forEach(fillPatch);
 
 // Drum rows; index is stored as the note pitch on drum tracks.
+export const KITS = ['Classic', '808 style', '909 style', '606 style'];
 export const DRUMS = ['Kick', 'Snare', 'Clap', 'Lo Tom', 'Hi Tom', 'Cowbell', 'Hat', 'Open Hat'];
 
 // Schedules an ADSR on param with the release computed up front (no
@@ -128,6 +138,10 @@ export class Engine {
       tail = ctx.createBiquadFilter();
       tail.type = 'lowpass';
       tail.frequency.value = 80 * 2 ** (p.cut * 7.8);
+      if (p.fEnv > 0) {
+        tail.frequency.setValueAtTime(80 * 2 ** (Math.min(1, p.cut + p.fEnv) * 7.8), t);
+        tail.frequency.setTargetAtTime(80 * 2 ** (p.cut * 7.8), t, Math.max(p.fTime || 0.2, 0.01) / 3);
+      }
       tail.Q.value = p.res || 0.7;
       out.connect(tail);
     }
@@ -196,16 +210,64 @@ export class Engine {
       s.start(t, Math.random() * 0.5); s.stop(t0 + dec + 0.02);
       s.onended = () => g.disconnect();
     };
-    switch (row) {
-      case 0: tone('sine', 150, 45, 0.12, 0.4, 1.1); break;
-      case 1: tone('triangle', 200, 140, 0.08, 0.12, 0.5); noise('highpass', 1800, 0.7, 0.18, 0.6); break;
-      case 2: noise('bandpass', 1300, 1.2, 0.2, 0.9, 3); break;
-      case 3: tone('sine', 120, 70, 0.2, 0.3, 0.8); break;
-      case 4: tone('sine', 200, 125, 0.2, 0.25, 0.7); break;
-      case 5: tone('square', 540, 540, 0.1, 0.18, 0.18); tone('square', 800, 800, 0.1, 0.18, 0.18); break;
-      case 6: noise('highpass', 7500, 0.7, 0.045, 0.45); break;
-      case 7: noise('highpass', 7000, 0.7, 0.32, 0.4); break;
-    }
+    // Six detuned squares through a highpass: the metallic hat/cymbal recipe.
+    const metal = (hp, dec, lvl) => {
+      const f = ctx.createBiquadFilter(), g = ctx.createGain();
+      f.type = 'highpass'; f.frequency.value = hp;
+      g.gain.setValueAtTime(lvl * vel, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dec);
+      f.connect(g).connect(dest);
+      [205.3, 304.4, 369.6, 522.7, 540, 800].forEach((fr, i) => {
+        const o = ctx.createOscillator();
+        o.type = 'square'; o.frequency.value = fr;
+        o.connect(f); o.start(t); o.stop(t + dec + 0.02);
+        if (i === 0) o.onended = () => g.disconnect();
+      });
+    };
+    const kits = {
+      'Classic': [
+        () => tone('sine', 150, 45, 0.12, 0.4, 1.1),
+        () => { tone('triangle', 200, 140, 0.08, 0.12, 0.5); noise('highpass', 1800, 0.7, 0.18, 0.6); },
+        () => noise('bandpass', 1300, 1.2, 0.2, 0.9, 3),
+        () => tone('sine', 120, 70, 0.2, 0.3, 0.8),
+        () => tone('sine', 200, 125, 0.2, 0.25, 0.7),
+        () => { tone('square', 540, 540, 0.1, 0.18, 0.18); tone('square', 800, 800, 0.1, 0.18, 0.18); },
+        () => noise('highpass', 7500, 0.7, 0.045, 0.45),
+        () => noise('highpass', 7000, 0.7, 0.32, 0.4),
+      ],
+      '808 style': [
+        () => tone('sine', 130, 50, 0.05, 0.9, 1.1),
+        () => { tone('sine', 240, 180, 0.03, 0.15, 0.45); tone('sine', 480, 330, 0.03, 0.08, 0.25); noise('highpass', 2500, 0.7, 0.2, 0.45); },
+        () => noise('bandpass', 1000, 1.5, 0.35, 0.8, 3),
+        () => tone('sine', 110, 80, 0.1, 0.5, 0.8),
+        () => tone('sine', 190, 150, 0.1, 0.35, 0.7),
+        () => { tone('square', 540, 540, 0.1, 0.4, 0.15); tone('square', 800, 800, 0.1, 0.4, 0.15); },
+        () => metal(7000, 0.05, 0.22),
+        () => metal(7000, 0.45, 0.2),
+      ],
+      '909 style': [
+        () => { tone('sine', 240, 48, 0.06, 0.45, 1.15); noise('highpass', 2000, 0.7, 0.012, 0.3); },
+        () => { tone('triangle', 280, 180, 0.04, 0.12, 0.55); noise('highpass', 1200, 0.7, 0.22, 0.7); },
+        () => noise('bandpass', 1400, 1, 0.25, 0.9, 3),
+        () => tone('sine', 160, 80, 0.12, 0.35, 0.9),
+        () => tone('sine', 280, 150, 0.12, 0.3, 0.8),
+        () => { tone('triangle', 1700, 1700, 0.01, 0.03, 0.5); tone('square', 480, 480, 0.01, 0.03, 0.2); },
+        () => { noise('highpass', 8500, 0.7, 0.05, 0.4); metal(9000, 0.04, 0.25); },
+        () => { noise('highpass', 8000, 0.7, 0.4, 0.35); metal(9000, 0.35, 0.2); },
+      ],
+      '606 style': [
+        () => tone('sine', 140, 55, 0.04, 0.22, 1),
+        () => { tone('triangle', 250, 200, 0.02, 0.07, 0.35); noise('highpass', 3000, 0.7, 0.11, 0.55); },
+        () => noise('bandpass', 1800, 2, 0.12, 0.7, 2),
+        () => tone('sine', 150, 110, 0.05, 0.2, 0.7),
+        () => tone('sine', 230, 180, 0.05, 0.16, 0.65),
+        () => metal(5000, 0.7, 0.14),
+        () => metal(8000, 0.035, 0.24),
+        () => metal(8000, 0.25, 0.2),
+      ],
+    };
+    const hit = (kits[track.kit] || kits.Classic)[row];
+    if (hit) hit();
   }
 }
 

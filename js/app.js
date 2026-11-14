@@ -1,4 +1,4 @@
-import { Engine, ALGOS, PRESETS, DRUMS, WAVES, fillPatch, scheduleStep, patternAt, swingOffset, renderWav } from './audio.js';
+import { Engine, ALGOS, PRESETS, DRUMS, KITS, WAVES, fillPatch, scheduleStep, patternAt, swingOffset, renderWav } from './audio.js';
 
 const STORE = 'fmloops.project.v1';
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -53,6 +53,7 @@ function normalize(p) {
     t.song = Array.from({ length: p.songBars }, (_, i) => (t.song && t.song[i] != null ? t.song[i] : -1));
     t.active = Math.min(t.active || 0, NPAT - 1);
     if (t.patch) fillPatch(t.patch);
+    if (!KITS.includes(t.kit)) t.kit = 'Classic';
   }
   return p;
 }
@@ -474,6 +475,8 @@ function soundPanel(panel) {
     t.type === 'synth' && t.preset.startsWith('my:') && mySounds[t.preset.slice(3)] && h('button', {
       onclick: () => { delete mySounds[t.preset.slice(3)]; saveMySounds(); renderPanel(); toast('Removed from My sounds. Tracks using it keep their sound.'); },
     }, 'Remove saved'),
+    t.type === 'drums' && field('Kit', h('select', { value: t.kit, onchange: e => { t.kit = e.target.value; commit(); } },
+      KITS.map(k => h('option', { value: k }, k)))),
     t.type === 'synth' && field('Algorithm', h('select', {
       value: String(t.patch.algo), onchange: e => { t.patch.algo = +e.target.value; commit(); renderPanel(); },
     }, ALGOS.map((a, i) => h('option', { value: String(i) }, a.name)))),
@@ -505,7 +508,8 @@ function soundPanel(panel) {
     h('div', { class: 'voice' },
       slider('Pitch env', pa, 'pitchAmt', -24, 24, 1), slider('Env time', pa, 'pitchTime', 0.01, 2, 0.01),
       slider('Vibrato', pa, 'vibDepth', 0, 100, 1), slider('Vib rate', pa, 'vibRate', 0.1, 12, 0.1),
-      slider('Filter', pa, 'cut', 0, 1, 0.01), slider('Resonance', pa, 'res', 0.1, 15, 0.1))));
+      slider('Filter', pa, 'cut', 0, 1, 0.01), slider('Resonance', pa, 'res', 0.1, 15, 0.1),
+      slider('Filter env', pa, 'fEnv', 0, 1, 0.01), slider('F-env time', pa, 'fTime', 0.01, 2, 0.01))));
 
   const algo = ALGOS[t.patch.algo];
   panel.append(h('div', { class: 'ops' }, t.patch.ops.map((o, i) => {
@@ -518,7 +522,7 @@ function soundPanel(panel) {
       slider('Attack', o, 'a', 0.001, 2, 0.001), slider('Decay', o, 'd', 0.01, 4, 0.01),
       slider('Sustain', o, 's', 0, 1, 0.01), slider('Release', o, 'r', 0.01, 3, 0.01));
   })));
-  panel.append(h('p', { class: 'hint' }, 'Start from the "Init" preset to build a sound from scratch; "Save sound" stores it under the track name. Pitch env starts each note that many semitones off and glides to pitch. Filter at 1 is fully open. Carriers are the operators you hear. Modulators change a carrier\'s timbre: raise "Amount" for a brighter, harsher tone, and use the modulator\'s envelope to make that brightness fade or swell.'));
+  panel.append(h('p', { class: 'hint' }, 'Start from the "Init" preset to build a sound from scratch; "Save sound" stores it under the track name. Pitch env starts each note that many semitones off and glides to pitch. Filter at 1 is fully open; Filter env opens it further at the start of each note (it only works with Filter below 1). Carriers are the operators you hear. Modulators change a carrier\'s timbre: raise "Amount" for a brighter, harsher tone, and use the modulator\'s envelope to make that brightness fade or swell.'));
 }
 
 function songPanel(panel) {
