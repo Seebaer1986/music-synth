@@ -100,3 +100,8 @@ input[type=checkbox] { min-height: 0; width: 18px; height: 18px; accent-color: #
 .shead.now { background: #4f7cff; color: #fff; }
 .scell { min-height: 34px; padding: 0; border-radius: 4px; background: #1c2027; border-color: #262a34; font-weight: 700; }
 .scell.on { background: var(--c); border-color: var(--c); color: #14161b; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 50;
+  background: #2b3040; border: 1px solid #4f7cff; border-radius: 8px; padding: 8px 14px; max-width: 90vw;
+}

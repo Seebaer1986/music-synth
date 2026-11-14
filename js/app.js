@@ -89,18 +89,19 @@ const pat = () => T().patterns[T().active];
 
 let saved = JSON.stringify(P);
 const undoStack = [];
+function store(json) { try { localStorage.setItem(STORE, json); } catch { /* storage full or blocked */ } }
 function commit() {
   const now = JSON.stringify(P);
   if (now === saved) return;
   undoStack.push(saved);
   if (undoStack.length > 60) undoStack.shift();
   saved = now;
-  try { localStorage.setItem(STORE, now); } catch { /* storage full or blocked */ }
+  store(now);
 }
 function replaceProject(p, keepUndo = true) {
   P = normalize(p);
   ui.track = Math.min(ui.track, P.tracks.length - 1);
-  if (keepUndo) commit(); else { saved = JSON.stringify(P); localStorage.setItem(STORE, saved); }
+  if (keepUndo) commit(); else { saved = JSON.stringify(P); store(saved); }
   syncAll();
   renderAll();
 }
@@ -108,7 +109,7 @@ function undo() {
   if (!undoStack.length) return;
   P = JSON.parse(undoStack.pop());
   saved = JSON.stringify(P);
-  localStorage.setItem(STORE, saved);
+  store(saved);
   ui.track = Math.min(ui.track, P.tracks.length - 1);
   syncAll();
   renderAll();
@@ -187,6 +188,12 @@ function seg(options, get, set) {
 }
 const field = (label, ...kids) => h('label', { class: 'field' }, h('span', {}, label), ...kids);
 
+function toast(msg) {
+  const el = h('div', { class: 'toast' }, msg);
+  document.body.append(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
 function download(blob, name) {
   const a = h('a', { href: URL.createObjectURL(blob), download: name });
   document.body.append(a); a.click(); a.remove();
@@ -210,8 +217,8 @@ function renderTop() {
     h('button', { onclick: undo, title: 'Undo' }, '↶ Undo'),
     h('details', { class: 'menu' }, h('summary', {}, 'File'),
       h('div', { class: 'menu-items' },
-        h('button', { onclick: () => confirm('Start a new empty project?') && replaceProject(blankProject()) }, 'New project'),
-        h('button', { onclick: () => confirm('Replace the current project with the demo?') && replaceProject(demoProject()) }, 'Load demo'),
+        h('button', { onclick: () => { replaceProject(blankProject()); toast('New project. Undo brings the old one back.'); } }, 'New project'),
+        h('button', { onclick: () => replaceProject(demoProject()) }, 'Load demo'),
         h('button', { onclick: () => download(new Blob([JSON.stringify(P)], { type: 'application/json' }), 'project.fmloops.json') }, 'Save to file'),
         h('label', { class: 'btn' }, 'Open file', h('input', {
           type: 'file', accept: '.json,application/json', hidden: true,
@@ -220,7 +227,7 @@ function renderTop() {
               const p = JSON.parse(await e.target.files[0].text());
               if (!Array.isArray(p.tracks) || !p.tracks.length) throw new Error('no tracks');
               replaceProject(p);
-            } catch (err) { alert('Could not open that file: ' + err.message); }
+            } catch (err) { toast('Could not open that file: ' + err.message); }
             e.target.value = '';
           },
         })),
@@ -228,7 +235,7 @@ function renderTop() {
           onclick: async e => {
             const b = e.target; b.disabled = true; b.textContent = 'Rendering…';
             try { download(await renderWav(P, ui.mode), ui.mode === 'song' ? 'song.wav' : 'loop.wav'); }
-            catch (err) { alert('Export failed: ' + err.message); }
+            catch (err) { toast('Export failed: ' + err.message); }
             b.disabled = false; b.textContent = 'Export WAV';
           },
         }, 'Export WAV'))),
@@ -252,7 +259,7 @@ function renderTracks() {
     }, String(pi + 1)))),
   ));
   const add = type => {
-    if (P.tracks.length >= 12) return alert('12 tracks is the limit.');
+    if (P.tracks.length >= 12) return toast('12 tracks is the limit.');
     P.tracks.push(newTrack(type, P.tracks.length));
     normalize(P); commit(); syncAll();
     selectTrack(P.tracks.length - 1);
@@ -449,11 +456,11 @@ function soundPanel(panel) {
     h('button', {
       class: 'danger',
       onclick: () => {
-        if (P.tracks.length < 2) return alert('A project needs at least one track.');
-        if (!confirm(`Delete track "${t.name}"?`)) return;
+        if (P.tracks.length < 2) return toast('A project needs at least one track.');
         P.tracks.splice(ui.track, 1);
         ui.track = Math.max(0, ui.track - 1);
         commit(); renderTracks(); renderPanel();
+        toast('Track deleted. Undo brings it back.');
       },
     }, 'Delete track')));
 
@@ -485,7 +492,7 @@ function songPanel(panel) {
   const setBars = n => { P.songBars = n; normalize(P); commit(); renderPanel(); };
   panel.append(h('div', { class: 'toolbar' },
     field('Song length', h('button', { onclick: () => setBars(P.songBars - 4) }, '−4'), h('b', {}, ` ${P.songBars} bars `), h('button', { onclick: () => setBars(P.songBars + 4) }, '+4')),
-    h('button', { onclick: () => { if (confirm('Clear the whole arrangement?')) { P.tracks.forEach(t => t.song.fill(-1)); commit(); renderPanel(); } } }, 'Clear song')));
+    h('button', { onclick: () => { P.tracks.forEach(t => t.song.fill(-1)); commit(); renderPanel(); toast('Song cleared. Undo brings it back.'); } }, 'Clear song')));
 
   const heads = [];
   const gridEl = h('div', { class: 'song', style: `grid-template-columns:90px repeat(${P.songBars}, ${SONG_CELL}px)` });
