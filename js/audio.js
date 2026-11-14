@@ -30,6 +30,7 @@ export const PRESETS = {
   'Mono Lead (SH style)': { algo: 5, cut: 0.72, res: 3, fEnv: 0.2, fTime: 0.4, vibDepth: 12, vibRate: 5.5, ops: [wv(op(1, 0.7, 0.01, 0.3, 0.8, 0.15), 'sawtooth'), wv(op(0.5, 0.45, 0.01, 0.3, 0.8, 0.15), 'square'), OFF(), OFF()] },
   'Poly Strings (Juno style)': { algo: 5, cut: 0.68, res: 1, ops: [wv(op(1, 0.6, 0.35, 1, 0.85, 0.9, -9), 'sawtooth'), wv(op(1, 0.6, 0.35, 1, 0.85, 0.9, 9), 'sawtooth'), wv(op(2, 0.2, 0.5, 1, 0.7, 0.9, 4), 'sawtooth'), OFF()] },
   'Brass Stab (Jupiter style)': { algo: 5, cut: 0.45, res: 2, fEnv: 0.4, fTime: 0.35, ops: [wv(op(1, 0.7, 0.02, 0.4, 0.7, 0.2, -7), 'sawtooth'), wv(op(1, 0.7, 0.02, 0.4, 0.7, 0.2, 7), 'sawtooth'), OFF(), OFF()] },
+  'Harp': { algo: 3, ops: [op(1, 0.9, 0.001, 1.8, 0, 1.2), op(2, 0.33, 0.001, 0.14, 0, 0.1), op(2, 0.22, 0.001, 0.9, 0, 0.8, 3), op(3, 0.25, 0.001, 0.06, 0, 0.05)] },
   'Organ': { algo: 5, ops: [op(0.5, 0.7, 0.005, 0.1, 1, 0.06), op(1, 0.8, 0.005, 0.1, 1, 0.06), op(2, 0.5, 0.005, 0.1, 1, 0.06), op(3, 0.3, 0.005, 0.1, 1, 0.06)] },
 };
 

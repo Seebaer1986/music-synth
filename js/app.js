@@ -203,10 +203,58 @@ function toast(msg) {
   setTimeout(() => el.remove(), 3500);
 }
 
-function download(blob, name) {
+// Wraps one file in an uncompressed zip (used where .wav cannot be saved directly).
+function zipOne(name, bytes) {
+  let crc = -1;
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= bytes[i];
+    for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+  }
+  crc = ~crc >>> 0;
+  const nm = new TextEncoder().encode(name), n = bytes.length;
+  const head = (sig, extra) => {
+    const dv = new DataView(new ArrayBuffer(extra ? 46 : 30));
+    let o = 0;
+    const u16 = v => { dv.setUint16(o, v, true); o += 2; }, u32 = v => { dv.setUint32(o, v, true); o += 4; };
+    u32(sig); if (extra) u16(20);
+    u16(20); u16(0x800); u16(0); u16(0); u16(0x21); u32(crc); u32(n); u32(n); u16(nm.length); u16(0);
+    if (extra) { u16(0); u16(0); u16(0); u32(0); u32(0); }
+    return dv;
+  };
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, 1, true); end.setUint16(10, 1, true);
+  end.setUint32(12, 46 + nm.length, true); end.setUint32(16, 30 + nm.length + n, true);
+  return new Blob([head(0x04034b50, false), nm, bytes, head(0x02014b50, true), nm, end], { type: 'application/zip' });
+}
+
+// Saves a file. On a hosted Claude page plain downloads are blocked, so the
+// page's download service is used there (it does not accept .wav, hence the zip).
+async function download(blob, name) {
+  if (window.claude && window.claude.use) {
+    const dl = await window.claude.use('downloads');
+    if (!dl) return toast('Saving files is not available in this view.');
+    try {
+      if (name.endsWith('.wav')) {
+        blob = zipOne(name, new Uint8Array(await blob.arrayBuffer()));
+        name = name.replace(/\.wav$/, '.zip');
+      }
+      await dl.save({ filename: name, data: blob });
+    } catch (err) {
+      if (!err || err.code !== 'declined') toast('Could not save: ' + ((err && (err.message || err.code)) || 'unknown error'));
+    }
+    return;
+  }
   const a = h('a', { href: URL.createObjectURL(blob), download: name });
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+async function exportWav(btn, mode) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Rendering…';
+  try { await download(await renderWav(P, mode), mode === 'song' ? 'song.wav' : 'loop.wav'); }
+  catch (err) { toast('Export failed: ' + err.message); }
+  btn.disabled = false; btn.textContent = label;
 }
 
 function renderTop() {
@@ -240,14 +288,8 @@ function renderTop() {
             e.target.value = '';
           },
         })),
-        h('button', {
-          onclick: async e => {
-            const b = e.target; b.disabled = true; b.textContent = 'Rendering…';
-            try { download(await renderWav(P, ui.mode), ui.mode === 'song' ? 'song.wav' : 'loop.wav'); }
-            catch (err) { toast('Export failed: ' + err.message); }
-            b.disabled = false; b.textContent = 'Export WAV';
-          },
-        }, 'Export WAV'))),
+        h('button', { onclick: e => exportWav(e.target, 'loop') }, 'Export loop (WAV)'),
+        h('button', { onclick: e => exportWav(e.target, 'song') }, 'Export song (WAV)'))),
   );
   updateTransport();
 }
@@ -529,7 +571,8 @@ function songPanel(panel) {
   const setBars = n => { P.songBars = n; normalize(P); commit(); renderPanel(); };
   panel.append(h('div', { class: 'toolbar' },
     field('Song length', h('button', { onclick: () => setBars(P.songBars - 4) }, '−4'), h('b', {}, ` ${P.songBars} bars `), h('button', { onclick: () => setBars(P.songBars + 4) }, '+4')),
-    h('button', { onclick: () => { P.tracks.forEach(t => t.song.fill(-1)); commit(); renderPanel(); toast('Song cleared. Undo brings it back.'); } }, 'Clear song')));
+    h('button', { onclick: () => { P.tracks.forEach(t => t.song.fill(-1)); commit(); renderPanel(); toast('Song cleared. Undo brings it back.'); } }, 'Clear song'),
+    h('button', { onclick: e => exportWav(e.target, 'song') }, 'Export song (WAV)')));
 
   const heads = [];
   const gridEl = h('div', { class: 'song', style: `grid-template-columns:90px repeat(${P.songBars}, ${SONG_CELL}px)` });
